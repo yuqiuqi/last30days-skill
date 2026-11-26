@@ -1,0 +1,81 @@
+name: Last 30 Days Research
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: 'Public search topic only (this repository is public)'
+        required: true
+        default: 'AI coding agents'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out reviewed research engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ed7ec6752b766ea3eb62239b374900764e9b5453
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Search public sources
+        id: search
+        env:
+          RESEARCH_TOPIC: ${{ inputs.topic }}
+          LAST30DAYS_SCHEDULED_RUN: '1'
+          LAST30DAYS_LIBRARY_CONTEXT: 'off'
+        run: |
+          set -euo pipefail
+          if [[ -z "${RESEARCH_TOPIC//[[:space:]]/}" || "${#RESEARCH_TOPIC}" -gt 160 || "$RESEARCH_TOPIC" == *[[:cntrl:]]* ]]; then
+            echo "Enter a public, single-line topic of 1–160 characters." >&2
+            exit 2
+          fi
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/last30days-config"
+          timeout 150s python3 skills/last30days/scripts/last30days.py \
+            --days 30 --quick --search github,hn --no-browser-cookies --emit=json --research-only \
+            -- "$RESEARCH_TOPIC" > "$RUNNER_TEMP/last30days-report.json"
+      - name: Validate and summarize the report
+        run: |
+          python3 - "$RUNNER_TEMP/last30days-report.json" >> "$GITHUB_STEP_SUMMARY" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as f:
+              report = json.load(f)
+          if report.get("window_days") != 30 or not isinstance(report.get("results"), list):
+              raise SystemExit("Unexpected report format or research window.")
+          statuses = report.get("source_status")
+          if not isinstance(statuses, dict):
+              raise SystemExit("The report is missing source coverage.")
+          known = {"ok", "no-results", "partial", "rate-limited", "auth-failed",
+                   "unreachable", "timeout", "schema-drift", "skipped-unconfigured",
+                   "payment-required", "error"}
+          clean = {"ok", "no-results"}
+          print("### Last 30 Days Research")
+          print(f"Results: {len(report['results'])}")
+          covered = 0
+          for key, label in (("github", "GitHub"), ("hackernews", "Hacker News")):
+              status = statuses.get(key)
+              status = status if isinstance(status, str) and status in known else "not reported"
+              print(f"- {label}: {status}")
+              covered += status in clean
+          if covered < 2:
+              print("\nCoverage incomplete. An unavailable source does not mean zero matches.")
+          if covered == 0:
+              raise SystemExit("Neither requested source completed cleanly.")
+          PY
+      - name: Upload public-topic research report
+        if: ${{ !cancelled() && steps.search.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: last30days-report
+          path: ${{ runner.temp }}/last30days-report.json
+          if-no-files-found: error
+          retention-days: 3
