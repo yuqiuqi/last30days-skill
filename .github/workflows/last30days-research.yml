@@ -25,6 +25,10 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.12'
+      - name: Install YouTube search dependency
+        run: |
+          python3 -m pip install --disable-pip-version-check 'yt-dlp[default]==2026.11.23'
+          yt-dlp --version
       - name: Search public sources
         id: search
         env:
@@ -39,7 +43,7 @@ jobs:
           fi
           export XDG_CONFIG_HOME="$RUNNER_TEMP/last30days-config"
           timeout 150s python3 skills/last30days/scripts/last30days.py \
-            --days 30 --quick --search github,hn --no-browser-cookies --emit=json --research-only \
+            --days 30 --quick --search reddit,youtube --no-browser-cookies --emit=json --research-only \
             -- "$RESEARCH_TOPIC" > "$RUNNER_TEMP/last30days-report.json"
       - name: Validate and summarize the report
         run: |
@@ -61,7 +65,7 @@ jobs:
           print("### Last 30 Days Research")
           print(f"Results: {len(report['results'])}")
           covered = 0
-          for key, label in (("github", "GitHub"), ("hackernews", "Hacker News")):
+          for key, label in (("reddit", "Reddit"), ("youtube", "YouTube")):
               status = statuses.get(key)
               status = status if isinstance(status, str) and status in known else "not reported"
               print(f"- {label}: {status}")
