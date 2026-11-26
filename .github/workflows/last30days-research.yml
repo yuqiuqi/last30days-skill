@@ -39,7 +39,7 @@ jobs:
           fi
           export XDG_CONFIG_HOME="$RUNNER_TEMP/last30days-config"
           timeout 150s python3 skills/last30days/scripts/last30days.py \
-            --days 30 --quick --search github,hn --no-browser-cookies --emit=json \
+            --days 30 --quick --search github,hn --no-browser-cookies --emit=json --research-only \
             -- "$RESEARCH_TOPIC" > "$RUNNER_TEMP/last30days-report.json"
       - name: Validate and summarize the report
         run: |
